@@ -4,10 +4,11 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 
 from langchain_community.document_loaders import PyPDFLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter  
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
 from langchain_groq import ChatGroq
+from langchain_core.messages import SystemMessage, HumanMessage  
 
 load_dotenv()
 
@@ -65,32 +66,30 @@ def ask_question(request: QuestionRequest):
 
     docs = retriever.invoke(request.question)
 
-    context = ""
-    for i, d in enumerate(docs):
-        context += f"Source {i+1}:\n{d.page_content}\n\n"
+    if not docs:
+        return {"question": request.question, "answer": "No relevant documents found in the database."}
+    context_text = "\n\n---\n\n".join(
+        [f"Source {i+1}:\n{d.page_content}" for i, d in enumerate(docs)]
+    )
 
-    prompt = f"""
-You are a document assistant.
+   
+    system_prompt = (
+        "You are a document assistant. Answer the user's question using ONLY the provided sources. "
+        "If the answer is not in the sources, say 'Not in document'. "
+        "Always cite the source numbers used in your answer."
+    )
 
-Rules:
-- Answer only from the provided sources
-- If not found, say "Not in document"
-- Include source numbers
+    user_prompt = f"Context:\n{context_text}\n\nQuestion: {request.question}"
 
-Sources:
-{context}
+    messages = [
+        SystemMessage(content=system_prompt),
+        HumanMessage(content=user_prompt),
+    ]
 
-Question:
-{request.question}
-
-Answer:
-"""
-
-    response = llm.invoke(prompt)
+\
+    response = llm.invoke(messages)
 
     return {
         "question": request.question,
         "answer": response.content
     }
-
-# uvicorn app:app --reload
